@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Color Cube</title>
+  <meta name="description" content="A WebXR color picker: an RGB cube on your left hand, picked with your right.">
+  <style>
+    :root { --bg: #15120f; --ink: #f3ede4; --muted: #a39a8e; }
+    html, body { margin: 0; height: 100%; background: radial-gradient(120% 90% at 50% 40%, #2a241e 0%, var(--bg) 70%); color: var(--ink); font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+    canvas { display: block; touch-action: none; }
+    .hud { position: fixed; inset: auto 0 0 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 20px 24px; pointer-events: none; }
+    .hud > * { pointer-events: auto; }
+    .about h1 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+    .about p { margin: 0; color: var(--muted); max-width: 34ch; }
+    .swatch-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .swatch { width: 28px; height: 28px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+    .swatch__hex { font: 600 13px/1 ui-monospace, "Cascadia Mono", monospace; letter-spacing: .04em; }
+    /* XRButton positions itself; keep it in the corner of the HUD instead. */
+    .xr button, .xr a { position: static !important; transform: none !important; width: auto !important; padding: 12px 18px !important; border: 1px solid rgba(255,255,255,.5) !important; border-radius: 999px !important; background: rgba(0,0,0,.25) !important; color: var(--ink) !important; font: 600 13px/1 system-ui, sans-serif !important; opacity: 1 !important; }
+    .in-xr .hud { display: none; }
+    @media (max-width: 560px) { .hud { flex-direction: column; align-items: flex-start; padding: 16px; } }
+  </style>
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <div class="hud">
+    <div class="about">
+      <h1>Color cube</h1>
+      <p>Every point on the cube is its own color. In a headset it rides on your left hand: pinch it with your right and slide the ring, or point a controller and pull the trigger. Here, drag on it.</p>
+      <div class="swatch-row"><span class="swatch" aria-hidden="true"></span><span class="swatch__hex" aria-live="polite"></span></div>
+    </div>
+    <div class="xr"></div>
+  </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
