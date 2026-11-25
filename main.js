@@ -326,15 +326,23 @@ for (let i = 0; i < 2; i++) {
 
 const joint = (entry, name) => { const j = entry.hand.joints[name]; return j && j.visible !== false ? j.getWorldPosition(new THREE.Vector3()) : null; };
 
-/** The left palm (between wrist and middle knuckle) or the left controller's grip, or null. */
-function leftPalm() {
+/** Where the cube rests on the left hand, or null: on the palm (between wrist and middle knuckle), or on the top of
+ * the left controller (along its handle from the grip, toward the thumb, which is the grip space's -Z). */
+function leftRest() {
   const e = sources.left;
   if (!e || !e.source) return null;
   if (e.source.hand) {
     const wrist = joint(e, 'wrist'), knuckle = joint(e, 'middle-finger-phalanx-proximal');
-    return wrist && knuckle ? wrist.lerp(knuckle, 0.5) : null;
+    return wrist && knuckle ? { at: wrist.lerp(knuckle, 0.5), gap: F.abovePalm } : null;
   }
-  return e.grip.getWorldPosition(new THREE.Vector3());
+  const top = v3(0, 0, -F.controllerTop).applyQuaternion(e.grip.getWorldQuaternion(new THREE.Quaternion()));
+  return { at: e.grip.getWorldPosition(new THREE.Vector3()).add(top), gap: F.aboveController };
+}
+
+/** Half the cube's height as it stands, so its lowest corner can rest on the hand. */
+function halfHeight() {
+  const m = new THREE.Matrix4().makeRotationFromQuaternion(rollTo).elements; // column-major: row y is 1, 5, 9
+  return (L.size / 2) * (Math.abs(m[1]) + Math.abs(m[5]) + Math.abs(m[9]));
 }
 
 // The right hand's pinch, sliding the ring.
@@ -350,9 +358,11 @@ function updateRight(dt) {
   if (e.source.hand) {
     const thumb = joint(e, 'thumb-tip'), index = joint(e, 'index-finger-tip');
     if (!thumb || !index) { holding = pinching = false; return; }
+    // A pinch is the headset's own (it sends select for a hand's pinch) or thumb and index tips close enough.
     const gap = thumb.distanceTo(index), point = thumb.clone().lerp(index, 0.5);
-    const fresh = !pinching && gap < F.pinchOn;
-    pinching = pinching ? gap < F.pinchOff : gap < F.pinchOn;
+    const closed = e.selecting || gap < F.pinchOn;
+    const fresh = !pinching && closed;
+    pinching = pinching ? e.selecting || gap < F.pinchOff : closed;
     if (fresh && boxDistance(point) <= F.reach) { holding = true; last.copy(point); eased.copy(point); }
     if (holding && !pinching) holding = false;
     if (holding) {
@@ -392,8 +402,9 @@ function placePalette(dt, inXR) {
   if (!inXR) { palette.position.set(0, 0, 0); palette.quaternion.identity(); return; }
   const xrCamera = renderer.xr.getCamera();
   xrCamera.getWorldPosition(head);
-  let at = leftPalm();
-  if (at) at.y += F.abovePalm;
+  const rest = leftRest();
+  let at = null;
+  if (rest) { at = rest.at; at.y += halfHeight() + rest.gap; } // its lowest corner that far above the palm or controller
   else { // No left hand: it waits in front of you.
     const forward = v3(0, 0, -1).applyQuaternion(xrCamera.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
     at = head.clone().addScaledVector(forward, 0.4).add(v3(0, -0.15, 0));
