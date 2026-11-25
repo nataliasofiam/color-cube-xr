@@ -2,23 +2,23 @@
 // the clipboard, to paste back here. Sizes in meters unless noted, times in seconds, angles in degrees.
 
 export const LOOK = {
-  size: 0.04,             // the cube's edge
-  tilt: 36.87,            // how far it tips back, so its top shows too
-  yaw: -45,               // how far it turns, so an edge points at you
+  size: 0.041,            // the cube's edge
+  tilt: -8,               // how far it tips back (top showing), or forward when negative
+  yaw: -42,               // how far it turns, so an edge points at you
   edgeColor: '#ffffff',   // lines along the cube's edges
   edgeOpacity: 0,
   ringColor: '#ffffff',
   ringOpacity: 1,
   ringRadius: 0.0045,
-  ringWidth: 0.0022,
-  ringLift: 0.0008,       // off the face, so it doesn't sink into it
+  ringWidth: 0.0015,
+  ringLift: 0.0003,       // off the face, so it doesn't sink into it
   gridN: 3,               // held still, the face breaks into this many tiles each way
-  gridSpan: 0.45,         // of each color channel, all the tiles together
-  tileGap: 0.16,          // of a tile, the gap between tiles
+  gridSpan: 0.53,         // of each color channel, all the tiles together
+  tileGap: 0.19,          // of a tile, the gap between tiles
   tileLift: 0.08,         // of the cube's edge, how far the tiles lift off the face
   tileTip: 1,             // how much the tiles tip as they part
   tileShade: 1,           // how much darker a block's sides are than its face
-  crumbLife: 0.7,         // the rest of the cube falling away: how long a block lasts
+  crumbLife: 3,           // the rest of the cube falling away: how long a block lasts
   crumbFall: 0.5,         // m/s², how fast it falls
   crumbPush: 0.02,        // m/s, how hard it's pushed back off the face
   bgInner: '#2a241e',     // the page without a headset
@@ -29,7 +29,7 @@ export const LOOK = {
 };
 
 export const FEEL = {
-  abovePalm: 0.07,        // how far above the left palm it rides
+  abovePalm: 0,           // how far above the left palm it rides
   paletteEase: 0.12,      // it eases after the hand, so tracking doesn't shake it
   reach: 0.03,            // a pinch this close to the cube takes the ring
   touch: 0.008,           // a fingertip this close to the cube picks where it touches
