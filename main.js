@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { XRButton } from 'three/addons/webxr/XRButton.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { ColorCube, faceAt, clamp01 } from './cube.js';
 import { FaceGrid } from './grid.js';
 import { LOOK, FEEL } from './settings.js';
@@ -16,6 +17,10 @@ const GRID_MAX = 7;           // the most tiles each way the meshes have room fo
 const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const fromTo = (a, b) => new THREE.Quaternion().setFromUnitVectors(a.clone().normalize(), b.clone().normalize());
 const deg = THREE.MathUtils.degToRad;
+/** A box with its edges rounded off, `roundness` of its edge (0 square, 0.5 a pill all round). */
+const roundBox = (size) => L.roundness > 0
+  ? new RoundedBoxGeometry(size, size, size, 5, Math.min(0.5, L.roundness) * size)
+  : new THREE.BoxGeometry(size, size, size);
 
 // ---- Scene -------------------------------------------------------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -99,7 +104,7 @@ let tileWobble = [];  // each tile's own delay and the way it tips as it parts
 // color, and `shade` darkens its sides so it reads as a block of its own. Colors go out as they are, as the cube's do.
 const BLOCK_ATTRIBUTES = [['aHome', 3], ['aSolid', 3], ['aSpan', 1], ['aMix', 1], ['aShade', 1]];
 function blockMesh(count) {
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const geometry = roundBox(1);
   for (const [name, size] of BLOCK_ATTRIBUTES) geometry.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(count * size), size).setUsage(THREE.DynamicDrawUsage));
   const material = new THREE.ShaderMaterial({
     uniforms: { uPaint: { value: new THREE.Matrix3() } }, // the block's own way round, in the cube
@@ -122,6 +127,13 @@ function blockMesh(count) {
 function paintBlock(mesh, k, n, { home, solid = home, span = 1 / n, mix = 0, shade = mix }) {
   const a = mesh.geometry.attributes;
   a.aHome.setXYZ(k, ...home); a.aSolid.setXYZ(k, ...solid); a.aSpan.setX(k, span); a.aMix.setX(k, mix); a.aShade.setX(k, shade * L.tileShade);
+}
+/** Rounds a block mesh's blocks anew, keeping each block's paint. */
+function reshapeBlocks(mesh) {
+  const old = mesh.geometry, geometry = roundBox(1);
+  for (const [name] of BLOCK_ATTRIBUTES) geometry.setAttribute(name, old.attributes[name]);
+  mesh.geometry = geometry;
+  old.dispose();
 }
 function blocksChanged(mesh) {
   for (const [name] of BLOCK_ATTRIBUTES) mesh.geometry.attributes[name].needsUpdate = true;
@@ -160,7 +172,7 @@ function fallAway(c, n, away) {
   if (bits.length >= CRUMBS) bits.shift();
   bits.push({
     c, n, home: cellColor(c, n),
-    pos: cellPlace(c, n).applyQuaternion(cube.quaternion),
+    pos: cellPlace(c, n).applyQuaternion(cube.quaternion).add(cube.position),
     vel: away.clone().multiplyScalar(L.crumbPush * (0.5 + Math.random())).add(v3(Math.random() - 0.5, 0, Math.random() - 0.5).multiplyScalar(L.crumbPush * 0.5)),
     turn: cube.quaternion.clone(),
     spin: new THREE.Quaternion().setFromAxisAngle(v3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(), 0.5 + Math.random()),
@@ -336,7 +348,11 @@ function leftRest() {
   if (!e || !e.source) return null;
   if (e.source.hand) {
     const wrist = joint(e, 'wrist'), knuckle = joint(e, 'middle-finger-phalanx-proximal');
-    return wrist && knuckle ? { at: wrist.lerp(knuckle, 0.5), gap: F.abovePalm } : null;
+    const index = joint(e, 'index-finger-phalanx-proximal'), pinky = joint(e, 'pinky-finger-phalanx-proximal');
+    if (!wrist || !knuckle || !index || !pinky) return null;
+    // Out of the palm, for the left hand: (pinky - wrist) x (index - wrist). Palm up, index on the left, that's up.
+    const out = pinky.clone().sub(wrist).cross(index.clone().sub(wrist)).normalize();
+    return { at: wrist.lerp(knuckle, 0.5), gap: F.abovePalm, up: out };
   }
   // A hand the browser gives only as a pointer (no joints: hand tracking wasn't granted) has no grip: its ray starts at it.
   if (!e.grip.visible) return e.controller.visible ? { at: e.controller.getWorldPosition(new THREE.Vector3()), gap: F.abovePalm } : null;
@@ -410,7 +426,7 @@ function placePalette(dt, inXR) {
   xrCamera.getWorldPosition(head);
   const rest = leftRest();
   let at = null;
-  if (rest) { at = rest.at; at.y += halfHeight() + rest.gap; } // its lowest corner that far above the palm or controller
+  if (rest) at = rest.at.addScaledVector(rest.up || v3(0, 1, 0), halfHeight() + rest.gap); // its lowest corner that far off the palm or controller
   else { // No left hand: it waits in front of you.
     const forward = v3(0, 0, -1).applyQuaternion(xrCamera.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
     at = head.clone().addScaledVector(forward, 0.4).add(v3(0, -0.15, 0));
@@ -454,9 +470,9 @@ function applyLook() {
     if (grid) commitGrid();
     shatter = 0; updateTiles(0);
   }
-  if (changed('size')) {
+  if (changed('size', 'roundness')) {
     cube.geometry.dispose();
-    cube.geometry = new THREE.BoxGeometry(L.size, L.size, L.size);
+    cube.geometry = roundBox(L.size);
     cubeMaterial.uniforms.uSize.value = L.size;
   }
   if (changed('size', 'edgeOpacity')) {
@@ -472,6 +488,7 @@ function applyLook() {
   }
   ring.material.color.set(L.ringColor);
   ring.material.opacity = L.ringOpacity;
+  if (changed('roundness')) for (const m of [tiles, body, crumbs]) reshapeBlocks(m);
   if (changed('tilt', 'yaw')) standCube();
   camera.fov = L.fov;
   camera.position.set(0, L.height, L.distance);
@@ -514,6 +531,14 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+// Idle, the cube floats slowly up and down; picking, it settles still under your fingers.
+let floatTime = 0, floating = 1;
+function levitate(dt, active) {
+  floating += ((active || grid ? 0 : 1) - floating) * (1 - Math.exp(-dt / 0.3));
+  floatTime += dt;
+  cube.position.y = Math.sin((floatTime / L.floatPeriod) * Math.PI * 2) * L.floatHeight * floating;
+}
+
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1), inXR = renderer.xr.isPresenting;
@@ -523,6 +548,7 @@ renderer.setAnimationLoop(() => {
   const active = mouseDown || holding || touching || aiming;
   if (grid && !active && !holdOpen) commitGrid(); // let go on a tile: that's the color
   updateLinger(dt, active);
+  levitate(dt, active);
   updateTiles(dt);
   updateCrumbs(dt);
   if (roll < 1) {

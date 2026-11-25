@@ -6,13 +6,14 @@ const KEY = 'color-cube-tune';
 // [key, label, min, max, step, unit] for sliders, where `unit` multiplies the stored value for display (100: meters
 // shown as cm); [key, label, 'color'] for colors. Sliders show the stored value's units unless they say otherwise.
 const GROUPS = [
-  ['LOOK', 'Cube', [['size', 'Edge (cm)', 1, 40, 0.1, 100], ['tilt', 'Tipped back (°)', -90, 90, 0.5], ['yaw', 'Turned (°)', -180, 180, 1],
+  ['LOOK', 'Cube', [['size', 'Edge (cm)', 1, 40, 0.1, 100], ['roundness', 'Rounded edges', 0, 0.5, 0.01], ['tilt', 'Tipped back (°)', -90, 90, 0.5], ['yaw', 'Turned (°)', -180, 180, 1],
     ['edgeColor', 'Edge line color', 'color'], ['edgeOpacity', 'Edge line opacity', 0, 1, 0.01]]],
   ['LOOK', 'Ring', [['ringColor', 'Color', 'color'], ['ringOpacity', 'Opacity', 0, 1, 0.01], ['ringRadius', 'Radius (mm)', 1, 50, 0.1, 1000],
     ['ringWidth', 'Width (mm)', 0.2, 10, 0.1, 1000], ['ringLift', 'Lift off face (mm)', 0, 5, 0.1, 1000]]],
   ['LOOK', 'Tiles', [['gridN', 'Tiles each way', 2, 7, 1], ['gridSpan', 'Color range across them', 0.05, 1, 0.01], ['tileGap', 'Gap', 0, 0.6, 0.01],
     ['tileLift', 'Lift (of edge)', 0, 0.5, 0.01], ['tileTip', 'Tip as they part', 0, 4, 0.05], ['tileShade', 'Side shading', 0, 1.5, 0.01]]],
   ['LOOK', 'Falling away', [['crumbLife', 'Lasts (s)', 0.1, 3, 0.05], ['crumbFall', 'Gravity (m/s²)', 0, 10, 0.05], ['crumbPush', 'Push (cm/s)', 0, 20, 0.1, 100]]],
+  ['LOOK', 'Levitation', [['floatHeight', 'Drift up and down (mm)', 0, 20, 0.5, 1000], ['floatPeriod', 'One rise and fall (s)', 0.5, 10, 0.1]]],
   ['LOOK', 'Page (no headset)', [['bgInner', 'Background center', 'color'], ['bgOuter', 'Background edge', 'color'], ['fov', 'Field of view (°)', 10, 90, 1],
     ['distance', 'Camera distance (cm)', 5, 150, 0.5, 100], ['height', 'Camera height (cm)', -60, 60, 0.5, 100]]],
   ['FEEL', 'Picking (headset)', [['drag', 'Drag ratio', 0.05, 3, 0.01], ['ringEase', 'Ring friction (s)', 0, 0.5, 0.01], ['roll', 'Roll to next face (s)', 0.1, 3, 0.05],
@@ -20,7 +21,7 @@ const GROUPS = [
     ['pinchOn', 'Pinch closes at (mm)', 5, 40, 0.5, 1000], ['pinchOff', 'Pinch opens at (mm)', 10, 80, 0.5, 1000]]],
   ['FEEL', 'Breaking into tiles', [['linger', 'Hold still for (s)', 0.02, 2, 0.01], ['lingerStill', 'Still enough', 0.001, 0.08, 0.001],
     ['shatter', 'Parting time (s)', 0.05, 2, 0.01], ['tileStagger', 'Stagger', 0, 0.9, 0.01]]],
-  ['FEEL', 'On the hand or controller', [['abovePalm', 'Above palm (cm)', 0, 25, 0.5, 100], ['controllerTop', 'Controller grip to top (cm)', 0, 15, 0.5, 100],
+  ['FEEL', 'On the hand or controller', [['abovePalm', 'Off palm (cm)', 0, 25, 0.5, 100], ['controllerTop', 'Controller grip to top (cm)', 0, 15, 0.5, 100],
     ['aboveController', 'Above controller (cm)', 0, 25, 0.5, 100], ['paletteEase', 'Follow lag (s)', 0, 0.6, 0.01]]]
 ];
 
