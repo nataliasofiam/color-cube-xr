@@ -6,8 +6,8 @@
   <title>Color Cube</title>
   <meta name="description" content="A WebXR color picker: an RGB cube on your left hand, picked with your right.">
   <style>
-    :root { --bg: #15120f; --ink: #f3ede4; --muted: #a39a8e; }
-    html, body { margin: 0; height: 100%; background: radial-gradient(120% 90% at 50% 40%, #2a241e 0%, var(--bg) 70%); color: var(--ink); font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+    :root { --bg: #15120f; --bg-inner: #2a241e; --ink: #f3ede4; --muted: #a39a8e; }
+    html, body { margin: 0; height: 100%; background: radial-gradient(120% 90% at 50% 40%, var(--bg-inner) 0%, var(--bg) 70%); color: var(--ink); font: 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
     canvas { display: block; touch-action: none; }
     .hud { position: fixed; inset: auto 0 0 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 20px 24px; pointer-events: none; }
     .hud > * { pointer-events: auto; }

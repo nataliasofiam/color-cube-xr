@@ -1,36 +1,21 @@
 // The color cube rides above the left hand (palm, or a controller's grip), turned to face you. The right hand picks:
 // pinch on the cube and slide the ring, over an edge onto the next face, and the cube rolls to bring that face round;
 // or touch it with a fingertip, or point a controller and hold the trigger. Without a headset, the mouse does it.
+// Its look and feel are in settings.js; ?tune edits them live (tune.js).
 import * as THREE from 'three';
 import { XRButton } from 'three/addons/webxr/XRButton.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { ColorCube, faceAt, clamp01 } from './cube.js';
 import { FaceGrid } from './grid.js';
+import { LOOK, FEEL } from './settings.js';
 
-// Sizes in meters, times in seconds: the feel of the Unity version.
-const CUBE = 0.04;           // the cube's edge
-const ABOVE_PALM = 0.07;     // how far above the left palm it rides
-const PALETTE_EASE = 0.12;   // it eases after the hand, so tracking doesn't shake it
-const REACH = 0.03;          // a pinch this close to the cube takes the ring
-const TOUCH = 0.008;         // a fingertip this close to the cube picks where it touches
-const DRAG = 0.3;            // of the hand's movement, the ring's: a calm hand for a fine color
-const RING_EASE = 0.1;       // the ring and the hand moving it ease after where they're going, like friction
-const ROLL = 0.9;            // rolling onto the face the ring went over to
-const FACE_STICK = 0.12;     // of the cube's size, a touch can stray off the ring's face before it goes to the next
-const PINCH_ON = 0.018, PINCH_OFF = 0.035; // thumb to index tip
-const RING_RADIUS = 0.0045, RING_WIDTH = 0.0022, RING_LIFT = 0.0008;
+const L = LOOK, F = FEEL;
 const START = [1, 0.2, 0.15]; // on the red face
-// Held still on a color this long while picking, the ring's face breaks up into tiles of the colors around it.
-const LINGER = 0.1;          // seconds still
-const LINGER_STILL = 0.012;  // of the cube's size, the ring can drift and still be still
-const GRID_N = 3;            // tiles each way
-const GRID_SPAN = 0.45;      // of each color channel, all the tiles together: 0.15 from one tile to the next
-const SHATTER = 0.45;        // the face parting into tiles, and closing up again
-const TILE_STAGGER = 0.2;    // of that, how far apart they start
-const TILE_LIFT = CUBE * 0.08, TILE_GAP = 0.16; // broken up, the tiles are whole cubes, lifted off the face and apart
+const GRID_MAX = 7;           // the most tiles each way the meshes have room for
 
 const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const fromTo = (a, b) => new THREE.Quaternion().setFromUnitVectors(a.clone().normalize(), b.clone().normalize());
+const deg = THREE.MathUtils.degToRad;
 
 // ---- Scene -------------------------------------------------------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -41,9 +26,7 @@ renderer.xr.setReferenceSpaceType('local-floor');
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 20);
-camera.position.set(0, 0.035, 0.16);
-camera.lookAt(0, 0, 0);
+const camera = new THREE.PerspectiveCamera(L.fov, innerWidth / innerHeight, 0.01, 20);
 
 // The palette faces you (+Z toward the viewer); the cube inside it turns.
 const palette = new THREE.Group();
@@ -51,27 +34,33 @@ scene.add(palette);
 
 // Every point its own color: a fragment's color is just where it is in the cube.
 const cubeMaterial = new THREE.ShaderMaterial({
-  vertexShader: `varying vec3 vColor; void main() { vColor = position / ${CUBE.toFixed(4)} + 0.5; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  uniforms: { uSize: { value: L.size } },
+  vertexShader: `uniform float uSize; varying vec3 vColor; void main() { vColor = position / uSize + 0.5; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `varying vec3 vColor; void main() { gl_FragColor = vec4(clamp(vColor, 0.0, 1.0), 1.0); }`
 });
-const cube = new THREE.Mesh(new THREE.BoxGeometry(CUBE, CUBE, CUBE), cubeMaterial);
+const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), cubeMaterial);
 palette.add(cube);
-const ring = new THREE.Mesh(
-  new THREE.RingGeometry(RING_RADIUS - RING_WIDTH / 2, RING_RADIUS + RING_WIDTH / 2, 32),
-  new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
-);
+const edges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ transparent: true }));
+cube.add(edges);
+const ring = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, transparent: true }));
 cube.add(ring);
 
 // ---- The cube's turn ---------------------------------------------------------------------------------------------
 // It stands with an edge toward you, tipped back so its top shows too. The ring's face turns to the right-hand side
 // face, the one nearest the hand that picks.
-const DISPLAY = fromTo(v3(0, 0, 1), v3(0, 0.6, 0.8)).multiply(new THREE.Quaternion().setFromAxisAngle(v3(0, 1, 0), -Math.PI / 4));
-const SLOT = v3(1, 0, 0).applyQuaternion(DISPLAY);
-
+let DISPLAY, SLOT;
 let picked = new ColorCube(START, 0, true);
 const ringNormal = () => { const n = v3(0, 0, 0); n.setComponent(picked.axis, picked.high ? 1 : -1); return n; };
-let rollFrom = new THREE.Quaternion(), rollTo = fromTo(ringNormal().applyQuaternion(DISPLAY), SLOT).multiply(DISPLAY), roll = 1;
-cube.quaternion.copy(rollTo);
+let rollFrom = new THREE.Quaternion(), rollTo = new THREE.Quaternion(), roll = 1;
+
+/** Stands the cube as `tilt` and `yaw` say, the ring's face in its slot. */
+function standCube() {
+  DISPLAY = new THREE.Quaternion().setFromAxisAngle(v3(1, 0, 0), -deg(L.tilt)).multiply(new THREE.Quaternion().setFromAxisAngle(v3(0, 1, 0), deg(L.yaw)));
+  SLOT = v3(1, 0, 0).applyQuaternion(DISPLAY);
+  rollTo = fromTo(ringNormal().applyQuaternion(DISPLAY), SLOT).multiply(DISPLAY);
+  cube.quaternion.copy(rollTo);
+  roll = 1;
+}
 
 /** The ring went onto another face: from where it is now, the cube turns the ring's face into its slot, and only that. */
 function turnTo() {
@@ -84,8 +73,8 @@ function showRing() {
   const n = ringNormal();
   // On the tiles, the ring rides on top of them where it is across them, and shows its tile's color.
   const at = grid ? grid.p : picked.color, color = grid ? grid.color : picked.color;
-  const lift = shown ? smooth(shatter) * TILE_LIFT : 0;
-  ring.position.fromArray(at).subScalar(0.5).multiplyScalar(CUBE).addScaledVector(n, RING_LIFT + lift);
+  const lift = shown ? smooth(shatter) * L.tileLift * L.size : 0;
+  ring.position.fromArray(at).subScalar(0.5).multiplyScalar(L.size).addScaledVector(n, L.ringLift + lift);
   ring.quaternion.copy(fromTo(v3(0, 0, 1), n));
   const hex = '#' + new THREE.Color().setRGB(...color, THREE.SRGBColorSpace).getHexString(THREE.SRGBColorSpace);
   swatch.style.background = hex;
@@ -93,14 +82,13 @@ function showRing() {
 }
 
 // ---- The face breaking off into tiles ----------------------------------------------------------------------------
-// The cube is three blocks each way. Held still, the layer under the ring stays where it is and the rest of the cube
-// falls away from behind it; then that layer parts into nine blocks, which take on the colors around the ring's.
+// The cube is gridN blocks each way. Held still, the layer under the ring stays where it is and the rest of the cube
+// falls away from behind it; then that layer parts into blocks, which take on the colors around the ring's.
 // Going back, they close up into the face again and the rest of the cube grows back behind them.
 let grid = null;    // the tiles the ring is on, or null on the whole face
 let shown = null;   // the tiles showing, still while they go back into the face
 let shatter = 0, shatterTo = 0; // 0 the whole face, 1 parted into tiles
 const smooth = (t) => t * t * (3 - 2 * t);
-const CELL = CUBE / GRID_N, CELL_SPAN = 1 / GRID_N;
 let tileWobble = [];  // each tile's own delay and the way it tips as it parts
 
 // Blocks paint themselves like the big cube: each carries the colors of where it came from (`home`, the color at its
@@ -118,7 +106,7 @@ function blockMesh(count) {
       void main() {
         vec3 paint = aHome + uPaint * position * aSpan;
         float side = normal.z > 0.5 ? 1.0 : (normal.z < -0.5 ? 0.45 : 0.7);
-        vColor = clamp(mix(paint, aSolid, aMix), 0.0, 1.0) * mix(1.0, side, aShade);
+        vColor = clamp(mix(paint, aSolid, aMix), 0.0, 1.0) * clamp(mix(1.0, side, aShade), 0.0, 1.0);
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: `varying vec3 vColor; void main() { gl_FragColor = vec4(vColor, 1.0); }`
@@ -128,36 +116,36 @@ function blockMesh(count) {
   mesh.visible = false;
   return mesh;
 }
-function paintBlock(mesh, k, { home, solid = home, span = CELL_SPAN, mix = 0, shade = mix }) {
+function paintBlock(mesh, k, n, { home, solid = home, span = 1 / n, mix = 0, shade = mix }) {
   const a = mesh.geometry.attributes;
-  a.aHome.setXYZ(k, ...home); a.aSolid.setXYZ(k, ...solid); a.aSpan.setX(k, span); a.aMix.setX(k, mix); a.aShade.setX(k, shade);
+  a.aHome.setXYZ(k, ...home); a.aSolid.setXYZ(k, ...solid); a.aSpan.setX(k, span); a.aMix.setX(k, mix); a.aShade.setX(k, shade * L.tileShade);
 }
 function blocksChanged(mesh) {
   for (const [name] of BLOCK_ATTRIBUTES) mesh.geometry.attributes[name].needsUpdate = true;
   mesh.instanceMatrix.needsUpdate = true;
 }
 
-/** Block c (three indices, 0 to GRID_N - 1): its middle as a color, and as a place in the cube. */
-const cellColor = (c) => c.map((k) => (k + 0.5) / GRID_N);
-const cellPlace = (c) => v3(...cellColor(c)).subScalar(0.5).multiplyScalar(CUBE);
+/** Block c (three indices, 0 to n - 1): its middle as a color, and as a place in the cube. */
+const cellColor = (c, n) => c.map((k) => (k + 0.5) / n);
+const cellPlace = (c, n) => v3(...cellColor(c, n)).subScalar(0.5).multiplyScalar(L.size);
 /** Every block but those in the layer under the ring. */
-function behind(axis, high) {
+function behind(axis, high, n) {
   const out = [];
-  for (let x = 0; x < GRID_N; x++) for (let y = 0; y < GRID_N; y++) for (let z = 0; z < GRID_N; z++) {
+  for (let x = 0; x < n; x++) for (let y = 0; y < n; y++) for (let z = 0; z < n; z++) {
     const c = [x, y, z];
-    if (c[axis] !== (high ? GRID_N - 1 : 0)) out.push(c);
+    if (c[axis] !== (high ? n - 1 : 0)) out.push(c);
   }
   return out;
 }
 
-const tiles = blockMesh(GRID_N * GRID_N);
+const tiles = blockMesh(GRID_MAX ** 2);
 cube.add(tiles);
-const body = blockMesh(GRID_N ** 3);  // the rest of the cube, growing back behind the face
+const body = blockMesh(GRID_MAX ** 3);  // the rest of the cube, growing back behind the face
 cube.add(body);
 
 // ---- What falls away ---------------------------------------------------------------------------------------------
 // In the palette, not the cube, so it falls straight down whichever way the cube is turned.
-const CRUMBS = 64, CRUMB_LIFE = 0.7, CRUMB_FALL = 0.5, CRUMB_PUSH = 0.02, CRUMB_WAIT = 0.08; // s, m/s², m/s, s
+const CRUMBS = GRID_MAX ** 3, CRUMB_WAIT = 0.08; // s
 const crumbs = blockMesh(CRUMBS);
 crumbs.count = 0;
 crumbs.visible = true;
@@ -165,15 +153,15 @@ palette.add(crumbs);
 const bits = [];
 
 /** Block c of the cube comes away, backward from the face that stays (`away`, in the palette), and falls. */
-function fallAway(c, away) {
+function fallAway(c, n, away) {
   if (bits.length >= CRUMBS) bits.shift();
   bits.push({
-    c, home: cellColor(c),
-    pos: cellPlace(c).applyQuaternion(cube.quaternion),
-    vel: away.clone().multiplyScalar(CRUMB_PUSH * (0.5 + Math.random())).add(v3(Math.random() - 0.5, 0, Math.random() - 0.5).multiplyScalar(CRUMB_PUSH * 0.5)),
+    c, n, home: cellColor(c, n),
+    pos: cellPlace(c, n).applyQuaternion(cube.quaternion),
+    vel: away.clone().multiplyScalar(L.crumbPush * (0.5 + Math.random())).add(v3(Math.random() - 0.5, 0, Math.random() - 0.5).multiplyScalar(L.crumbPush * 0.5)),
     turn: cube.quaternion.clone(),
     spin: new THREE.Quaternion().setFromAxisAngle(v3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(), 0.5 + Math.random()),
-    wait: Math.random() * CRUMB_WAIT, age: 0, life: CRUMB_LIFE * (0.8 + Math.random() * 0.4)
+    wait: Math.random() * CRUMB_WAIT, age: 0, life: L.crumbLife * (0.8 + Math.random() * 0.4)
   });
 }
 
@@ -184,15 +172,15 @@ function updateCrumbs(dt) {
     if (b.wait > 0) { b.wait -= dt; continue; }
     b.age += dt;
     if (b.age >= b.life) { bits.splice(k, 1); continue; }
-    b.vel.y -= CRUMB_FALL * dt;
+    b.vel.y -= L.crumbFall * dt;
     b.pos.addScaledVector(b.vel, dt);
     crumbStep.slerpQuaternions(still, b.spin, dt);
     b.turn.premultiply(crumbStep);
   }
   bits.forEach((b, k) => {
     const life = b.age / b.life, left = 1 - smooth(Math.min(1, Math.max(0, (life - 0.5) / 0.5)));
-    crumbs.setMatrixAt(k, crumbMatrix.compose(b.pos, b.turn, crumbScale.setScalar(CELL * left)));
-    paintBlock(crumbs, k, { home: b.home, shade: Math.min(1, life * 3) * 0.8 });
+    crumbs.setMatrixAt(k, crumbMatrix.compose(b.pos, b.turn, crumbScale.setScalar((L.size / b.n) * left)));
+    paintBlock(crumbs, k, b.n, { home: b.home, shade: Math.min(1, life * 3) * 0.8 });
   });
   crumbs.count = bits.length;
   blocksChanged(crumbs);
@@ -200,19 +188,22 @@ function updateCrumbs(dt) {
 
 /** Held still: the rest of the cube falls away behind the ring's face, and the face parts into tiles. */
 function openGrid() {
-  grid = shown = new FaceGrid(picked.color, picked.axis, picked.high, GRID_N, GRID_SPAN);
-  tileWobble = Array.from({ length: GRID_N * GRID_N }, () => ({
-    delay: Math.random() * TILE_STAGGER,
+  const n = L.gridN;
+  grid = shown = new FaceGrid(picked.color, picked.axis, picked.high, n, L.gridSpan);
+  tileWobble = Array.from({ length: n * n }, () => ({
+    delay: Math.random() * F.tileStagger,
     tip: v3(Math.random() - 0.5, Math.random() - 0.5, 0).normalize(),
     angle: (Math.random() < 0.5 ? -1 : 1) * (0.08 + Math.random() * 0.1)
   }));
   const away = v3(0, 0, 0);
   away.setComponent(grid.axis, grid.high ? -1 : 1);
   away.applyQuaternion(cube.quaternion);
-  for (const c of behind(grid.axis, grid.high)) fallAway(c, away);
+  for (const c of behind(grid.axis, grid.high, n)) fallAway(c, n, away);
   body.visible = false;
   cubeMaterial.visible = false;
+  edges.visible = false;
   tiles.visible = true;
+  tiles.count = n * n;
   shatterTo = 1;
   updateTiles(0);
 }
@@ -233,39 +224,40 @@ const exitGrid = () => closeGrid(grid.actual());
 const tileMatrix = new THREE.Matrix4(), tilePos = new THREE.Vector3(), tileScale = new THREE.Vector3(), tileTurn = new THREE.Quaternion(), tileTip = new THREE.Quaternion();
 function updateTiles(dt) {
   if (!shown) return;
-  shatter = shatterTo > shatter ? Math.min(1, shatter + dt / SHATTER) : Math.max(0, shatter - dt / SHATTER);
+  shatter = shatterTo > shatter ? Math.min(1, shatter + dt / F.shatter) : Math.max(0, shatter - dt / F.shatter);
   if (shatter === 0 && shatterTo === 0) { // back together: the big cube again
     tiles.visible = body.visible = false;
     cubeMaterial.visible = true;
+    edges.visible = L.edgeOpacity > 0;
     shown = null;
     showRing();
     return;
   }
-  const n = v3(0, 0, 0), layer = shown.high ? GRID_N - 1 : 0;
-  n.setComponent(shown.axis, shown.high ? 1 : -1);
-  const turn = fromTo(v3(0, 0, 1), n), [i, j] = shown.free;
+  const N = shown.n, cell = L.size / N, normal = v3(0, 0, 0), layer = shown.high ? N - 1 : 0;
+  normal.setComponent(shown.axis, shown.high ? 1 : -1);
+  const turn = fromTo(v3(0, 0, 1), normal), [i, j] = shown.free;
   tiles.material.uniforms.uPaint.value.setFromMatrix4(tileMatrix.makeRotationFromQuaternion(turn));
-  for (let a = 0; a < GRID_N; a++) for (let b = 0; b < GRID_N; b++) {
-    const k = a * GRID_N + b, w = tileWobble[k], c = [0, 0, 0];
+  for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) {
+    const k = a * N + b, w = tileWobble[k], c = [0, 0, 0];
     c[shown.axis] = layer; c[i] = a; c[j] = b;
     // Each in its own time: from its place in the face, it parts from the others, lifts, and takes its own color.
-    const t = Math.min(1, Math.max(0, (shatter - w.delay) / (1 - TILE_STAGGER))), e = smooth(t);
-    const size = CELL * (1 - TILE_GAP * e);
-    tilePos.copy(cellPlace(c)).addScaledVector(n, CELL / 2 - size / 2 + TILE_LIFT * e);
-    tileTip.setFromAxisAngle(w.tip, w.angle * Math.sin(Math.PI * t));
+    const t = Math.min(1, Math.max(0, (shatter - w.delay) / (1 - F.tileStagger))), e = smooth(t);
+    const size = cell * (1 - L.tileGap * e);
+    tilePos.copy(cellPlace(c, N)).addScaledVector(normal, cell / 2 - size / 2 + L.tileLift * L.size * e);
+    tileTip.setFromAxisAngle(w.tip, w.angle * L.tileTip * Math.sin(Math.PI * t));
     tileTurn.copy(turn).multiply(tileTip);
     tiles.setMatrixAt(k, tileMatrix.compose(tilePos, tileTurn, tileScale.setScalar(size)));
-    paintBlock(tiles, k, { home: cellColor(c), solid: shown.colorAt(a, b), mix: e });
+    paintBlock(tiles, k, N, { home: cellColor(c, N), solid: shown.colorAt(a, b), mix: e });
   }
   blocksChanged(tiles);
   // Going back, the rest of the cube grows in behind the face as the tiles close up.
   if (body.visible) {
     const grow = 1 - smooth(shatter);
-    behind(shown.axis, shown.high).forEach((c, k) => {
-      body.setMatrixAt(k, tileMatrix.compose(cellPlace(c), still, tileScale.setScalar(CELL * Math.max(0.001, grow))));
-      paintBlock(body, k, { home: cellColor(c) });
+    behind(shown.axis, shown.high, N).forEach((c, k) => {
+      body.setMatrixAt(k, tileMatrix.compose(cellPlace(c, N), still, tileScale.setScalar(cell * Math.max(0.001, grow))));
+      paintBlock(body, k, N, { home: cellColor(c, N) });
     });
-    body.count = GRID_N ** 3 - GRID_N * GRID_N;
+    body.count = N ** 3 - N * N;
     blocksChanged(body);
   }
   showRing();
@@ -275,19 +267,19 @@ function updateTiles(dt) {
 let stillFor = 0, anchor = null;
 function updateLinger(dt, active) {
   if (!active || grid || roll < 1) { stillFor = 0; anchor = null; return; }
-  if (!anchor || Math.hypot(...picked.color.map((c, i) => c - anchor[i])) > LINGER_STILL) { anchor = picked.color; stillFor = 0; return; }
+  if (!anchor || Math.hypot(...picked.color.map((c, i) => c - anchor[i])) > F.lingerStill) { anchor = picked.color; stillFor = 0; return; }
   stillFor += dt;
-  if (stillFor >= LINGER) openGrid();
+  if (stillFor >= F.linger) openGrid();
 }
 
 /** A point in or on the cube, 0 to 1 each way: the ring goes there, on the face it's nearest. */
 function pickAt(p) {
   if (grid) {
-    const face = faceAt(p, grid, FACE_STICK);
+    const face = faceAt(p, grid, F.faceStick);
     if (face.axis === grid.axis && face.high === grid.high) { grid.set(p); showRing(); return; }
     exitGrid(); // onto another face: the tiles go back, and it picks there as ever
   }
-  const { axis, high } = faceAt(p, picked, FACE_STICK);
+  const { axis, high } = faceAt(p, picked, F.faceStick);
   const turned = axis !== picked.axis || high !== picked.high;
   picked = new ColorCube(p.map(clamp01), axis, high);
   if (turned) turnTo();
@@ -297,12 +289,12 @@ function pickAt(p) {
 /** A world point as 0 to 1 each way across the cube. */
 function cubePoint(world) {
   const local = cube.worldToLocal(world.clone());
-  return [local.x, local.y, local.z].map((c) => c / CUBE + 0.5);
+  return [local.x, local.y, local.z].map((c) => c / L.size + 0.5);
 }
 
 /** How far a world point is outside the cube (0 inside). */
 function boxDistance(world) {
-  const local = cube.worldToLocal(world.clone()), h = CUBE / 2;
+  const local = cube.worldToLocal(world.clone()), h = L.size / 2;
   return Math.hypot(...[local.x, local.y, local.z].map((c) => Math.max(0, Math.abs(c) - h)));
 }
 
@@ -359,26 +351,26 @@ function updateRight(dt) {
     const thumb = joint(e, 'thumb-tip'), index = joint(e, 'index-finger-tip');
     if (!thumb || !index) { holding = pinching = false; return; }
     const gap = thumb.distanceTo(index), point = thumb.clone().lerp(index, 0.5);
-    const fresh = !pinching && gap < PINCH_ON;
-    pinching = pinching ? gap < PINCH_OFF : gap < PINCH_ON;
-    if (fresh && boxDistance(point) <= REACH) { holding = true; last.copy(point); eased.copy(point); }
+    const fresh = !pinching && gap < F.pinchOn;
+    pinching = pinching ? gap < F.pinchOff : gap < F.pinchOn;
+    if (fresh && boxDistance(point) <= F.reach) { holding = true; last.copy(point); eased.copy(point); }
     if (holding && !pinching) holding = false;
     if (holding) {
-      eased.lerp(point, 1 - Math.exp(-dt / RING_EASE));
+      eased.lerp(point, 1 - Math.exp(-dt / F.ringEase));
       // Against where the cube is turning to, so the ring's way doesn't swing while it rolls.
       const turn = palette.getWorldQuaternion(new THREE.Quaternion()).multiply(rollTo).invert();
-      const move = eased.clone().sub(last).applyQuaternion(turn).multiplyScalar(DRAG / CUBE);
+      const move = eased.clone().sub(last).applyQuaternion(turn).multiplyScalar(F.drag / L.size);
       last.copy(eased);
       if (grid) { if (!grid.move([move.x, move.y, move.z])) exitGrid(); }
       else if (picked.move(move.x, move.y, move.z)) turnTo();
       showRing();
-    } else if (!pinching && boxDistance(index) <= TOUCH) {
+    } else if (!pinching && boxDistance(index) <= F.touch) {
       touching = true;
       if (grid) { pickAt(cubePoint(index).map(clamp01)); return; }
       // A fingertip on the cube: the ring eases toward where it touches on its face, and goes straight to another face.
       const to = cubePoint(index).map(clamp01), from = picked.color;
-      const onFace = Math.abs(to[picked.axis] - (picked.high ? 1 : 0)) <= FACE_STICK;
-      const k = 1 - Math.exp(-dt / RING_EASE);
+      const onFace = Math.abs(to[picked.axis] - (picked.high ? 1 : 0)) <= F.faceStick;
+      const k = 1 - Math.exp(-dt / F.ringEase);
       pickAt(onFace ? from.map((c, i) => c + (to[i] - c) * k) : to);
     }
     return;
@@ -401,14 +393,14 @@ function placePalette(dt, inXR) {
   const xrCamera = renderer.xr.getCamera();
   xrCamera.getWorldPosition(head);
   let at = leftPalm();
-  if (at) at.y += ABOVE_PALM;
+  if (at) at.y += F.abovePalm;
   else { // No left hand: it waits in front of you.
     const forward = v3(0, 0, -1).applyQuaternion(xrCamera.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
     at = head.clone().addScaledVector(forward, 0.4).add(v3(0, -0.15, 0));
   }
   const toward = head.clone().sub(at).setY(0);
   const turn = toward.lengthSq() > 1e-6 ? new THREE.Quaternion().setFromAxisAngle(v3(0, 1, 0), Math.atan2(toward.x, toward.z)) : palette.quaternion.clone();
-  const k = placed ? 1 - Math.exp(-dt / PALETTE_EASE) : 1;
+  const k = placed ? 1 - Math.exp(-dt / F.paletteEase) : 1;
   palette.position.lerp(at, k);
   palette.quaternion.slerp(turn, k);
   placed = true;
@@ -433,10 +425,61 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 });
 renderer.domElement.addEventListener('pointerup', () => { mouseDown = false; });
 
-// ---- UI, session, loop ---------------------------------------------------------------------------------------------
+// ---- Applying the settings -----------------------------------------------------------------------------------------
+// Most settings are read where they're used, every frame. These need the scene rebuilt, and only when they change.
 const swatch = document.querySelector('.swatch'), swatchHex = document.querySelector('.swatch__hex');
-showRing();
+let built = {};
+const changed = (...keys) => keys.some((k) => built[k] !== L[k]);
+let holdOpen = false; // the tuner's "Hold tiles open": let go, the tiles stay
+function applyLook() {
+  const remake = (grid || shown) && changed('size', 'gridN', 'gridSpan');
+  if (remake) { // the tiles are made for the old settings: put the face back together at once
+    if (grid) commitGrid();
+    shatter = 0; updateTiles(0);
+  }
+  if (changed('size')) {
+    cube.geometry.dispose();
+    cube.geometry = new THREE.BoxGeometry(L.size, L.size, L.size);
+    cubeMaterial.uniforms.uSize.value = L.size;
+  }
+  if (changed('size', 'edgeOpacity')) {
+    edges.geometry.dispose();
+    edges.geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(L.size * 1.002, L.size * 1.002, L.size * 1.002));
+  }
+  edges.material.color.set(L.edgeColor);
+  edges.material.opacity = L.edgeOpacity;
+  edges.visible = L.edgeOpacity > 0 && !shown;
+  if (changed('ringRadius', 'ringWidth')) {
+    ring.geometry.dispose();
+    ring.geometry = new THREE.RingGeometry(Math.max(0, L.ringRadius - L.ringWidth / 2), L.ringRadius + L.ringWidth / 2, 48);
+  }
+  ring.material.color.set(L.ringColor);
+  ring.material.opacity = L.ringOpacity;
+  if (changed('tilt', 'yaw')) standCube();
+  camera.fov = L.fov;
+  camera.position.set(0, L.height, L.distance);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  document.documentElement.style.setProperty('--bg-inner', L.bgInner);
+  document.documentElement.style.setProperty('--bg', L.bgOuter);
+  built = { ...L };
+  if (remake && holdOpen) openGrid();
+  showRing();
+}
+function holdTiles(on) {
+  holdOpen = on;
+  if (on && !grid) openGrid();
+  if (!on && grid && !mouseDown) commitGrid();
+}
 
+// ?tune opens the customizer: it edits LOOK and FEEL in place and calls applyLook.
+const DEFAULTS = { LOOK: { ...LOOK }, FEEL: { ...FEEL } };
+if (new URLSearchParams(location.search).has('tune')) {
+  import('./tune.js').then(({ openTuner }) => openTuner({ sets: { LOOK: [LOOK, DEFAULTS.LOOK], FEEL: [FEEL, DEFAULTS.FEEL] }, apply: applyLook, holdTiles }));
+}
+applyLook();
+
+// ---- Session, loop -------------------------------------------------------------------------------------------------
 const button = XRButton.createButton(renderer, { optionalFeatures: ['hand-tracking', 'local-floor'] });
 document.querySelector('.xr').append(button);
 
@@ -462,12 +505,12 @@ renderer.setAnimationLoop(() => {
   if (inXR) updateRight(dt);
   else holding = touching = aiming = false;
   const active = mouseDown || holding || touching || aiming;
-  if (grid && !active) commitGrid(); // let go on a tile: that's the color
+  if (grid && !active && !holdOpen) commitGrid(); // let go on a tile: that's the color
   updateLinger(dt, active);
   updateTiles(dt);
   updateCrumbs(dt);
   if (roll < 1) {
-    roll = Math.min(1, roll + dt / ROLL);
+    roll = Math.min(1, roll + dt / F.roll);
     const s = roll * roll * (3 - 2 * roll);
     cube.quaternion.slerpQuaternions(rollFrom, rollTo, s);
   }
