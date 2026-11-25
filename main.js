@@ -26,6 +26,9 @@ renderer.xr.setReferenceSpaceType('local-floor');
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
+// The cube paints itself; the light is for the hand models.
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8076, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(0.5, 1, 0.8); scene.add(sun);
 const camera = new THREE.PerspectiveCamera(L.fov, innerWidth / innerHeight, 0.01, 20);
 
 // The palette faces you (+Z toward the viewer); the cube inside it turns.
@@ -335,6 +338,8 @@ function leftRest() {
     const wrist = joint(e, 'wrist'), knuckle = joint(e, 'middle-finger-phalanx-proximal');
     return wrist && knuckle ? { at: wrist.lerp(knuckle, 0.5), gap: F.abovePalm } : null;
   }
+  // A hand the browser gives only as a pointer (no joints: hand tracking wasn't granted) has no grip: its ray starts at it.
+  if (!e.grip.visible) return e.controller.visible ? { at: e.controller.getWorldPosition(new THREE.Vector3()), gap: F.abovePalm } : null;
   const top = v3(0, 0, -F.controllerTop).applyQuaternion(e.grip.getWorldQuaternion(new THREE.Quaternion()));
   return { at: e.grip.getWorldPosition(new THREE.Vector3()).add(top), gap: F.aboveController };
 }
@@ -386,7 +391,8 @@ function updateRight(dt) {
     return;
   }
 
-  // A controller: the ray, and the trigger picks where it lands.
+  // A controller (or a hand without joints, as a pointer): the ray, and the trigger or pinch picks where it lands.
+  if (!e.controller.visible) { aiming = false; return; }
   const origin = e.controller.getWorldPosition(new THREE.Vector3());
   const direction = v3(0, 0, -1).applyQuaternion(e.controller.getWorldQuaternion(new THREE.Quaternion()));
   const at = hit(origin, direction);
@@ -497,9 +503,8 @@ document.querySelector('.xr').append(button);
 renderer.xr.addEventListener('sessionstart', () => {
   placed = false;
   document.body.classList.add('in-xr');
-  // In passthrough your own hands are there; in VR, show tracked ones.
-  const opaque = renderer.xr.getSession().environmentBlendMode === 'opaque';
-  for (const i of [0, 1]) renderer.xr.getHand(i).children.forEach((c) => (c.visible = opaque));
+  const session = renderer.xr.getSession();
+  if (!(session.enabledFeatures || []).includes('hand-tracking')) console.warn('Hand tracking was not granted: hands work only as pointers.');
 });
 renderer.xr.addEventListener('sessionend', () => document.body.classList.remove('in-xr'));
 
