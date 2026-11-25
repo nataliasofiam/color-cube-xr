@@ -21,6 +21,9 @@ const GROUPS = [
     ['pinchOn', 'Pinch closes at (mm)', 5, 40, 0.5, 1000], ['pinchOff', 'Pinch opens at (mm)', 10, 80, 0.5, 1000]]],
   ['FEEL', 'Breaking into tiles', [['linger', 'Hold still for (s)', 0.02, 2, 0.01], ['lingerStill', 'Still enough', 0.001, 0.08, 0.001],
     ['shatter', 'Parting time (s)', 0.05, 2, 0.01], ['tileStagger', 'Stagger', 0, 0.9, 0.01]]],
+  ['PANEL', 'Paper', [['ink', 'Ink width (mm)', 0.5, 15, 0.1, 1000], ['penDown', 'Fingertip draws within (mm)', 0, 30, 0.5, 1000],
+    ['glass', 'Frame glass opacity', 0, 0.3, 0.005], ['showNear', 'Frame shows within (cm)', 2, 40, 0.5, 100], ['hideFar', 'Frame hides past (cm)', 2, 50, 0.5, 100],
+    ['faceEase', 'Turn to face you (s)', 0.02, 1, 0.01], ['deadZone', 'Two-hand turn dead zone (°)', 0, 20, 0.5]]],
   ['FEEL', 'On the hand or controller', [['abovePalm', 'Off palm (cm)', 0, 25, 0.5, 100], ['controllerTop', 'Controller grip to top (cm)', 0, 15, 0.5, 100],
     ['aboveController', 'Above controller (cm)', 0, 25, 0.5, 100], ['paletteEase', 'Follow lag (s)', 0, 0.6, 0.01]]]
 ];
@@ -73,7 +76,7 @@ export function openTuner({ sets, apply, holdTiles }) {
   const set = (r, v) => { live(r.set)[r.k] = v; sync(r); save(); apply(); };
 
   for (const [setName, title, ctrls] of GROUPS) {
-    const h = document.createElement('h3'); h.innerHTML = `${title}<small>${setName === 'FEEL' ? 'feel' : 'look'}</small>`; body.append(h);
+    const h = document.createElement('h3'); h.innerHTML = `${title}<small>${setName.toLowerCase()}</small>`; body.append(h);
     for (const [k, name, min, max, step, unit = 1] of ctrls) {
       const label = document.createElement('label'), span = document.createElement('span'); span.textContent = name; label.append(span);
       const r = { set: setName, k, label, unit, color: min === 'color', inputs: [] };

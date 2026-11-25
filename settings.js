@@ -49,3 +49,29 @@ export const FEEL = {
   shatter: 0.45,          // the face parting into tiles, and closing up again
   tileStagger: 0.2        // of that, how far apart the tiles start
 };
+
+// The paper in front of you, and the frosted-glass frame round it that carries it.
+export const PANEL = {
+  width: 0.56,            // the paper, as it opens
+  height: 0.4,
+  distance: 0.55,         // straight ahead of you
+  below: 0.15,            // under eye height
+  lean: 15,               // degrees it leans back toward you
+  paper: '#f6f2e9',
+  ink: 0.003,             // the line's width
+  penDown: 0.006,         // a fingertip this close to the paper draws
+  penUp: 0.012,           // and lifts off this far from it
+  band: 0.016,            // the frame, across
+  thickness: 0.004,
+  corner: 0.01,           // its outer corners' rounding
+  glass: 0.03,            // how opaque the glass is
+  showNear: 0.15,         // a hand or controller this close shows the frame
+  hideFar: 0.2,           // and nothing within this hides it
+  fade: 0.15,             // seconds to fade in or out
+  grabHand: 0.03,         // a pinch this close to the frame takes it
+  grabGrip: 0.1,          // a controller's grip this close
+  faceEase: 0.1,          // seconds: carried, it turns to face you, most of the way in about a quarter second
+  deadZone: 4,            // degrees two hands turn before it does
+  scaleMin: 0.5,          // two hands scale it, of its opening size
+  scaleMax: 2
+};

@@ -8,7 +8,8 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { ColorCube, faceAt, clamp01 } from './cube.js';
 import { FaceGrid } from './grid.js';
-import { LOOK, FEEL } from './settings.js';
+import { LOOK, FEEL, PANEL } from './settings.js';
+import { Panel } from './panel.js';
 
 const L = LOOK, F = FEEL;
 const START = [1, 0.2, 0.15]; // on the red face
@@ -35,6 +36,9 @@ const scene = new THREE.Scene();
 scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8076, 2.2));
 const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(0.5, 1, 0.8); scene.add(sun);
 const camera = new THREE.PerspectiveCamera(L.fov, innerWidth / innerHeight, 0.01, 20);
+
+// The paper to draw on, in front of you in a headset.
+const panel = new Panel(scene);
 
 // The palette faces you (+Z toward the viewer); the cube inside it turns.
 const palette = new THREE.Group();
@@ -337,6 +341,8 @@ for (let i = 0; i < 2; i++) {
   controller.addEventListener('disconnected', () => { if (sources.left === entry) sources.left = null; if (sources.right === entry) sources.right = null; entry.source = null; });
   controller.addEventListener('selectstart', () => { entry.selecting = true; });
   controller.addEventListener('selectend', () => { entry.selecting = false; });
+  controller.addEventListener('squeezestart', () => { entry.squeezing = true; });
+  controller.addEventListener('squeezeend', () => { entry.squeezing = false; });
 }
 
 const joint = (entry, name) => { const j = entry.hand.joints[name]; return j && j.visible !== false ? j.getWorldPosition(new THREE.Vector3()) : null; };
@@ -375,6 +381,7 @@ function updateRight(dt) {
   const e = sources.right;
   if (!e || !e.source) { holding = pinching = false; return; }
   e.rayLine.visible = !e.source.hand;
+  if (panel.uses(e)) { holding = pinching = false; return; } // carrying the paper, or drawing on it
 
   if (e.source.hand) {
     const thumb = joint(e, 'thumb-tip'), index = joint(e, 'index-finger-tip');
@@ -417,6 +424,25 @@ function updateRight(dt) {
   if (aiming) pickAt(cubePoint(at));
   else if (grid && e.selecting) exitGrid(); // pointed off the cube
 }
+
+// ---- The paper ------------------------------------------------------------------------------------------------------
+/** Each hand or controller as the paper sees it: fingertips, buttons, grip, and its ray. */
+function panelInputs() {
+  return [sources.left, sources.right].filter((e) => e && e.source).map((e) => {
+    const thumb = e.source.hand ? joint(e, 'thumb-tip') : null, index = e.source.hand ? joint(e, 'index-finger-tip') : null;
+    const ray = e.controller.visible ? {
+      origin: e.controller.getWorldPosition(new THREE.Vector3()),
+      direction: v3(0, 0, -1).applyQuaternion(e.controller.getWorldQuaternion(new THREE.Quaternion()))
+    } : null;
+    return {
+      id: e, hand: !!(thumb && index), thumb, index, ray,
+      select: e.selecting, squeeze: !!e.squeezing,
+      grip: !e.source.hand && e.grip.visible ? e.grip.getWorldPosition(new THREE.Vector3()) : null
+    };
+  });
+}
+/** The cube has this input (the right hand picking with it). */
+const cubeHas = (e) => e === sources.right && (holding || touching || aiming);
 
 // ---- Where the palette goes --------------------------------------------------------------------------------------
 const head = new THREE.Vector3();
@@ -507,9 +533,9 @@ function holdTiles(on) {
 }
 
 // ?tune opens the customizer: it edits LOOK and FEEL in place and calls applyLook.
-const DEFAULTS = { LOOK: { ...LOOK }, FEEL: { ...FEEL } };
+const DEFAULTS = { LOOK: { ...LOOK }, FEEL: { ...FEEL }, PANEL: { ...PANEL } };
 if (new URLSearchParams(location.search).has('tune')) {
-  import('./tune.js').then(({ openTuner }) => openTuner({ sets: { LOOK: [LOOK, DEFAULTS.LOOK], FEEL: [FEEL, DEFAULTS.FEEL] }, apply: applyLook, holdTiles }));
+  import('./tune.js').then(({ openTuner }) => openTuner({ sets: { LOOK: [LOOK, DEFAULTS.LOOK], FEEL: [FEEL, DEFAULTS.FEEL], PANEL: [PANEL, DEFAULTS.PANEL] }, apply: applyLook, holdTiles }));
 }
 applyLook();
 
@@ -519,6 +545,7 @@ document.querySelector('.xr').append(button);
 
 renderer.xr.addEventListener('sessionstart', () => {
   placed = false;
+  panel.opened = false; // it opens in front of you each time
   document.body.classList.add('in-xr');
   const session = renderer.xr.getSession();
   if (!(session.enabledFeatures || []).includes('hand-tracking')) console.warn('Hand tracking was not granted: hands work only as pointers.');
@@ -543,8 +570,17 @@ const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1), inXR = renderer.xr.isPresenting;
   placePalette(dt, inXR);
-  if (inXR) updateRight(dt);
-  else holding = touching = aiming = false;
+  if (inXR) {
+    const xrCamera = renderer.xr.getCamera();
+    panel.update(dt, {
+      head: xrCamera.getWorldPosition(new THREE.Vector3()), headQuat: xrCamera.getWorldQuaternion(new THREE.Quaternion()),
+      inputs: panelInputs(), busy: cubeHas, rgb: grid ? grid.color : picked.color, pinchOn: F.pinchOn, pinchOff: F.pinchOff
+    });
+    updateRight(dt);
+  } else {
+    holding = touching = aiming = false;
+    panel.hide();
+  }
   const active = mouseDown || holding || touching || aiming;
   if (grid && !active && !holdOpen) commitGrid(); // let go on a tile: that's the color
   updateLinger(dt, active);

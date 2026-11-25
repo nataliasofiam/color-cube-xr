@@ -9,6 +9,8 @@ A WebXR color picker. An RGB cube, every point on it its own color, rides above 
 
 Without a left hand (or controller) the cube waits in front of you. Without a headset, drag on it with the mouse.
 
+In a headset, a sheet of paper also opens in front of you. Draw on it in the cube's color: touch it with an index fingertip, or point at it and hold the trigger (or pinch). A frosted-glass frame round it shows as a hand or controller comes near: pinch it, grip it, or point at it and pull the trigger to carry it, and it turns to face you; with two hands, move, turn and scale it (half to twice its size). The paper and its frame are in `panel.js`, their settings in `settings.js` under `PANEL`.
+
 Passthrough (immersive AR) is used where the browser offers it, otherwise VR. Built with three.js, no build step: `index.html`, `main.js`, and the cube's rules in `cube.js` (`node cube.test.mjs` tests them), the tiles' in `grid.js`. Its look and feel (sizes, colors, the tiles, how picking responds) are in `settings.js`; open the page with `?tune` to change them live in a panel, then **Copy values** and paste the changes back into `settings.js`. Changes are kept in that browser, so you can tune in a headset's browser and then enter XR to try them. Embedded in an iframe, the iframe needs `allow="xr-spatial-tracking"`.
 
 Ported from the color cube in a Unity Quest prototype.
